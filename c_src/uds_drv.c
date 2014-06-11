@@ -95,7 +95,7 @@ do {									\
 */ 
 #define IO_VECTOR_MAX 16
 
-#define SOCKET_PATH "/tmp/erlang"
+#define SOCKET_PATH "var/run/dbus/system_bus_socket"
 #define LOCK_SUFFIX ".lock"
 
 #define NORMAL_READ_FAILURE -1
