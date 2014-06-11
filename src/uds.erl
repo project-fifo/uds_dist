@@ -45,7 +45,7 @@ close(Port) ->
     ?check_server(),
     (catch unlink(Port)), %% Avoids problem with trap exits.
     case (catch erlang:port_close(Port)) of
-	{'EXIT', Reason} ->
+	{'EXIT', _Reason} ->
 	    {error, closed};
 	_ ->
 	    ok
@@ -153,7 +153,7 @@ command(Port, Command, Parameters) ->
 port() ->
     SavedTrapExit = process_flag(trap_exit,true),
     case open_port({spawn, "uds_drv"},[]) of
-	P when port(P) ->
+	P when is_port(P) ->
 	    process_flag(trap_exit,SavedTrapExit),
 	    P;
 	{'EXIT',Error} ->
