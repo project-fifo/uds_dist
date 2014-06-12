@@ -43,11 +43,11 @@
 %%%
 -spec listen(string()) -> {ok, pid()} | ignore | {error, term()}.
 listen(Name) ->
-    gen_server:start_link(?MODULE, {listen, Name}, []).
+    gen_server:start_link(?MODULE, {$L, Name}, []).
 
 -spec connect(string()) -> {ok, pid()} | ignore | {error, term()}.
 connect(Name) ->
-    gen_server:start_link(?MODULE, {connect, Name}, []).
+    gen_server:start_link(?MODULE, {$C, Name}, []).
 
 -spec accept(pid()) -> ok | {error, term()}.
 accept(Port) ->
