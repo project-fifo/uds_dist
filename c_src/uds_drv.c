@@ -95,7 +95,6 @@ do {									\
 */ 
 #define IO_VECTOR_MAX 16
 
-#define SOCKET_PATH "/tmp/erlang"
 #define LOCK_SUFFIX ".lock"
 
 #define NORMAL_READ_FAILURE -1
@@ -180,7 +179,6 @@ static void put_packet_length(char *b, int len);
 static void *my_malloc(size_t size);
 static void *my_realloc(void *optr, size_t size);
 static int try_lock(char *sockname, Byte *p_creation);
-static int ensure_dir(char *path);
 static void do_unlink(char *name);
 
 /*
@@ -189,31 +187,29 @@ static void do_unlink(char *name);
 
 /* The driver entry */
 ErlDrvEntry uds_driver_entry = {
-    NULL,		   /* init, N/A */
-    uds_start,             /* start, called when port is opened */
-    uds_stop,              /* stop, called when port is closed */
-    uds_command,           /* output, called when erlang has sent */
-    uds_input,             /* ready_input, called when input descriptor 
-			      ready */
-    uds_output,            /* ready_output, called when output 
-			      descriptor ready */
-    "uds_drv",             /* char *driver_name, the argument to open_port */
-    uds_finish,            /* finish, called when unloaded */
-    NULL,                  /* void * that is not used (BC) */
-    uds_control,           /* control, port_control callback */
-    NULL,                  /* timeout, called on timeouts */
-    NULL,                  /* outputv, vector output interface */
-    NULL,                  /* ready_async */
-    NULL,                  /* flush */
-    NULL,                  /* call */
-    NULL,                  /* event */
-    ERL_DRV_EXTENDED_MARKER,
-    ERL_DRV_EXTENDED_MAJOR_VERSION,
-    ERL_DRV_EXTENDED_MINOR_VERSION,
-    0,	/* ERL_DRV_FLAGs */
-    NULL,
-    NULL,                  /* process_exit */
-    uds_stop_select
+  NULL,		   /* init, N/A */
+  uds_start,             /* start, called when port is opened */
+  (void*)uds_stop,       /* stop, called when port is closed */
+  (void*)uds_command,    /* output, called when erlang has sent */
+  (void*)uds_input,      /* ready_input, called when input descriptor ready */
+  (void*)uds_output,     /* ready_output, called when output descriptor ready */
+  "uds_drv",             /* char *driver_name, the argument to open_port */
+  (void*)uds_finish,     /* finish, called when unloaded */
+  NULL,                  /* void * that is not used (BC) */
+  (void*)uds_control,    /* control, port_control callback */
+  NULL,                  /* timeout, called on timeouts */
+  NULL,                  /* outputv, vector output interface */
+  NULL,                  /* ready_async */
+  NULL,                  /* flush */
+  NULL,                  /* call */
+  NULL,                  /* event */
+  ERL_DRV_EXTENDED_MARKER,
+  ERL_DRV_EXTENDED_MAJOR_VERSION,
+  ERL_DRV_EXTENDED_MINOR_VERSION,
+  0,	                   /* ERL_DRV_FLAGs */
+  NULL,
+  NULL,                  /* process_exit */
+  (void*)uds_stop_select
 };
 
 /* Beginning of linked list of ports */
@@ -508,56 +504,46 @@ static void uds_stop_select(ErlDrvEvent event, void* _)
 */
 static void uds_command_connect(UdsData *ud, char *buff, int bufflen) 
 {
-    char *str;
-    int fd;
-    struct sockaddr_un s_un;
-    int length;
-    int res;
+  char *str;
+  int fd;
+  struct sockaddr_un s_un;
+  int length;
+  int res;
 
-    str = ALLOC(25);
-    sprintf(str, "erl%d", (int) getpid()); /* A temporary sufficiently 
-					      unique name */
-    do_unlink(str);
-    s_un.sun_family = AF_UNIX;
-    strcpy(s_un.sun_path, SOCKET_PATH "/");
-    strcat(s_un.sun_path, str);
-    DEBUGF(("Connect own filename: %s", s_un.sun_path));
-    length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
-    ud->name = str;
-    ud->type = portTypeCommand;
-    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
-	DEBUGF(("socket call failed, errno = %d"));
-	driver_failure_posix(ud->port, errno);
-	return;
-    }
-    ud->fd = fd;
-    if ((res = bind(fd, (struct sockaddr *) &s_un, length)) < 0) {
-	DEBUGF(("bind call failed, errno = %d",errno));
-	driver_failure_posix(ud->port, errno);
-	return;
-    }
-    str = ALLOC(bufflen);
-    memcpy(str, buff + 1, bufflen - 1);
-    str[bufflen - 1] = '\0';
-    strcpy(s_un.sun_path, SOCKET_PATH "/");
-    strcat(s_un.sun_path, str);
-    length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
-    DEBUGF(("Connect peer filename: %s", s_un.sun_path));
-    SET_NONBLOCKING(fd);
-    if (connect(fd, (struct sockaddr *) &s_un, length) < 0) {
-	if (errno != EINPROGRESS) {
-	    driver_failure_posix(ud->port, errno);
-	} else {
-	    DEBUGF(("Connect pending"));
-	    ud->type = portTypeConnector;
-	    driver_select(ud->port, (ErlDrvEvent) ud->fd,
-			  ERL_DRV_WRITE|ERL_DRV_USE, 1);
-	} 
+  s_un.sun_family = AF_UNIX;
+
+  str = ALLOC(bufflen);
+  memcpy(str, buff + 1, bufflen - 1);
+  str[bufflen - 1] = '\0';
+  strncpy(s_un.sun_path, str, bufflen);
+
+  if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+    DEBUGF(("socket call failed, errno = %d"));
+    driver_failure_posix(ud->port, errno);
+    return;
+  }
+
+  ud->fd = fd;
+  ud->name = str;
+  ud->type = portTypeCommand;
+
+  length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
+  DEBUGF(("Connect filename: %s", s_un.sun_path));
+  SET_NONBLOCKING(fd);
+  if (connect(fd, (struct sockaddr *) &s_un, length) < 0) {
+    if (errno != EINPROGRESS) {
+      driver_failure_posix(ud->port, errno);
     } else {
-	DEBUGF(("Connect done"));
-	driver_output(ud->port, "Cok", 3);
+      DEBUGF(("Connect pending"));
+      ud->type = portTypeConnector;
+      driver_select(ud->port, (ErlDrvEvent) ud->fd,
+		    ERL_DRV_WRITE|ERL_DRV_USE, 1);
     }
-    FREE(str);
+  } else {
+    DEBUGF(("Connect done"));
+    driver_output(ud->port, "Cok", 3);
+  }
+  FREE(str);
 }
 
 static void uds_command_accept(UdsData *ud, char *buff, int bufflen) 
@@ -624,7 +610,6 @@ static void uds_command_listen(UdsData *ud, char *buff, int bufflen)
 	return;
     }
     s_un.sun_family = AF_UNIX;
-    strcpy(s_un.sun_path, SOCKET_PATH "/");
     strcat(s_un.sun_path, str);
     length = sizeof(s_un.sun_family) + strlen(s_un.sun_path);
     ud->name = str;
@@ -988,17 +973,6 @@ static void *my_realloc(void *ptr, size_t size)
 */
 
 /*
-** Check that directory exists, create if not (only works for one level)
-*/
-static int ensure_dir(char *path)
-{
-    if (mkdir(path,0777) != 0 && errno != EEXIST) {
-	return -1;
-    }
-    return 0;
-}
-
-/*
 ** Try to open a lock file and lock the first byte write-only (advisory)
 ** return the file descriptor if successful, otherwise -1 (<0).
 */ 
@@ -1009,15 +983,9 @@ static int try_lock(char *sockname, Byte *p_creation)
     struct flock fl;
     Byte creation;
 
-    lockname = ALLOC(strlen(SOCKET_PATH)+1+strlen(sockname)+
-		     strlen(LOCK_SUFFIX)+1);
-    sprintf(lockname,SOCKET_PATH "/%s" LOCK_SUFFIX, sockname);
+    lockname = ALLOC(strlen(sockname) + strlen(LOCK_SUFFIX) + 1);
+    sprintf(lockname, "%s" LOCK_SUFFIX, sockname);
     DEBUGF(("lockname = %s", lockname));
-    if (ensure_dir(SOCKET_PATH) != 0) {
-	DEBUGF(("ensure_dir failed, errno = %d", errno));
-	FREE(lockname);
-	return -1;
-    }
     if ((lockfd = open(lockname, O_RDWR | O_CREAT, 0666)) < 0) {
 	DEBUGF(("open failed, errno = %d", errno));
 	FREE(lockname);
@@ -1051,15 +1019,14 @@ static void do_unlink(char *name)
 {
     char buff[100];
     char *str = buff;
-    int len = strlen(SOCKET_PATH) + 1 + strlen(name) + 1;
+    int len = strlen(name) + 1;
 
     if (len > 100) {
 	str = ALLOC(len);
     }
-    sprintf(str,SOCKET_PATH "/%s",name);
+    sprintf(str, "%s", name);
     unlink(str);
     if (str != buff) {
 	FREE(str);
     }
 }
-
