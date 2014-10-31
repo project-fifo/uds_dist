@@ -44,11 +44,12 @@
 
 -include("dist.hrl").
 -include("dist_util.hrl").
--record(tick, {read = 0,
-	       write = 0,
-	       tick = 0,
-	       ticked = 0
-	       }).
+
+%-record(tick, {read = 0,
+%	       write = 0,
+%	       tick = 0,
+%	       ticked = 0
+%	       }).
 
 
 %% -------------------------------------------------------------
@@ -146,8 +147,7 @@ do_accept(Kernel, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 	      ?DFLAG_FUN_TAGS,
 	      allowed = Allowed,
 	      f_send = fun(S,D) -> uds:send(S,D) end,
-	      f_recv = fun(S,N,T) -> uds:recv(S) 
-		       end,
+	      f_recv = fun(S,_N,_T) -> uds:recv(S) end,
 	      f_setopts_pre_nodeup = 
 	      fun(S) ->
 		      uds:set_mode(S, intermediate)
@@ -170,7 +170,7 @@ do_accept(Kernel, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 %% Get remote information about a Socket.
 %% ------------------------------------------------------------
 
-get_remote_id(Socket, Node) ->
+get_remote_id(_Socket, Node) ->
     [_, Host] = split_node(atom_to_list(Node), $@, []),
     #net_address {
 		  address = [],
@@ -212,12 +212,8 @@ do_setup(Kernel, Node, MyNode, LongOrShortNames,SetupTime) ->
 		      ?DFLAG_DIST_MONITOR bor
 		      ?DFLAG_FUN_TAGS,
 		      other_version = 1,
-		      f_send = fun(S,D) -> 
-				       uds:send(S,D) 
-			       end,
-			      f_recv = fun(S,N,T) -> 
-					       uds:recv(S) 
-				       end,
+		      f_send = fun(S,D) -> uds:send(S,D) end,
+		      f_recv = fun(S,_N,_T) -> uds:recv(S) end,
 		      f_setopts_pre_nodeup = 
 		      fun(S) ->
 			      uds:set_mode(S, intermediate)
@@ -244,7 +240,7 @@ do_setup(Kernel, Node, MyNode, LongOrShortNames,SetupTime) ->
 		_ ->
 		    ?shutdown(Node)
 	    end;
-	Other ->
+	_Other ->
 	    ?shutdown(Node)
     end.
 
@@ -290,12 +286,12 @@ split_node([Chr|T], Chr, Ack) -> [lists:reverse(Ack)|split_node(T, Chr, [])];
 split_node([H|T], Chr, Ack)   -> split_node(T, Chr, [H|Ack]);
 split_node([], _, Ack)        -> [lists:reverse(Ack)].
 
-is_node_name(Node) when atom(Node) ->
+is_node_name(Node) when is_atom(Node) ->
     case split_node(atom_to_list(Node), $@, []) of
-	[_, Host] -> true;
+	[_, _Host] -> true;
 	_ -> false
     end;
-is_node_name(Node) ->
+is_node_name(_Node) ->
     false.
 
 tick(Sock) ->
