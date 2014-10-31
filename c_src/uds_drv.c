@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 
 #define HAVE_UIO_H
@@ -361,7 +362,7 @@ static void uds_input(ErlDrvData handle, ErlDrvEvent event)
 	ad->type = portTypeCommand;
 	ud->partner = NULL;
 	DEBUGF(("Accept successful."));
-	driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
+	driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ, 0);
 	driver_output(ad->port, "Aok",3);
 	return;
     }
@@ -379,7 +380,7 @@ static void uds_output(ErlDrvData handle, ErlDrvEvent event)
    UdsData *ud = (UdsData *) handle;
    if (ud->type == portTypeConnector) {
        ud->type = portTypeCommand;
-       driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_WRITE, 0);
+       driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_WRITE, 0);
        driver_output(ud->port, "Cok",3);
        return;
    }
@@ -436,7 +437,7 @@ static int uds_control(ErlDrvData handle, unsigned int command,
 	   return report_control_error(res, res_size, "einval");
        }
        ud->type = portTypeCommand;
-       driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
+       driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ, 0);
        ENSURE(1);
        **res = 0;
        return 1;
@@ -445,7 +446,7 @@ static int uds_control(ErlDrvData handle, unsigned int command,
 	   return report_control_error(res, res_size, "einval");
        }
        ud->type = portTypeIntermediate;
-       driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
+       driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ, 0);
        ENSURE(1);
        **res = 0;
        return 1;
@@ -508,7 +509,6 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen)
   int fd;
   struct sockaddr_un s_un;
   int length;
-  int res;
 
   s_un.sun_family = AF_UNIX;
 
@@ -536,7 +536,7 @@ static void uds_command_connect(UdsData *ud, char *buff, int bufflen)
     } else {
       DEBUGF(("Connect pending"));
       ud->type = portTypeConnector;
-      driver_select(ud->port, (ErlDrvEvent) ud->fd,
+      driver_select(ud->port, (ErlDrvEvent) (long) ud->fd,
 		    ERL_DRV_WRITE|ERL_DRV_USE, 1);
     }
   } else {
@@ -574,7 +574,7 @@ static void uds_command_accept(UdsData *ud, char *buff, int bufflen)
     lp->partner = ud;
     ud->partner = lp;
     ud->type = portTypeAcceptor;
-    driver_select(lp->port,(ErlDrvEvent) lp->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
+    driver_select(lp->port,(ErlDrvEvent) (long) lp->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
     /* Silent, answer will be sent in input routine */
 }
 
@@ -656,7 +656,7 @@ static void do_stop(UdsData *ud, int shutting_down)
 	FREE(ud->buffer); 
     }
     if (ud->fd >= 0) {
-	driver_select(ud->port, (ErlDrvEvent) ud->fd,
+	driver_select(ud->port, (ErlDrvEvent) (long) ud->fd,
 		      ERL_DRV_READ|ERL_DRV_WRITE|ERL_DRV_USE, 0);
     }
     if (ud->name) {
@@ -673,7 +673,7 @@ static void do_stop(UdsData *ud, int shutting_down)
 	    if (ud->type == portTypeAcceptor) {
 		UdsData *listener = ud->partner;
 		listener->partner = NULL;
-		driver_select(listener->port, (ErlDrvEvent) listener->fd,
+		driver_select(listener->port, (ErlDrvEvent) (long) listener->fd,
 			      ERL_DRV_READ, 0);
 	    } else {
 		UdsData *acceptor = ud->partner;
@@ -710,7 +710,7 @@ static void do_send(UdsData *ud, char *buff, int bufflen)
     eio.size = bufflen + 4;
     written = 0;
     if (driver_sizeq(ud->port) == 0) {
-	if ((written = writev(ud->fd, iov, 2)) == eio.size) {
+	if ((written = writev(ud->fd, (const iovec_t *) iov, 2)) == eio.size) {
 	    ud->sent += written;
 	    if (ud->type == portTypeCommand) {
 		driver_output(ud->port, "Sok", 3);
@@ -745,7 +745,7 @@ static void do_recv(UdsData *ud)
 	if ((res = buffered_read_package(ud,&ibuf)) < 0) {
 	    if (res == NORMAL_READ_FAILURE) {
 		DEBUGF(("do_recv normal read failed"));
-		driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
+		driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
 	    } else {
 		DEBUGF(("do_recv fatal read failed (%d) (%d)",errno, res));
 		driver_failure_eof(ud->port);
@@ -759,12 +759,12 @@ static void do_recv(UdsData *ud)
 			       before the actual buffer (where the packet
 			       header was) */
 	    driver_output(ud->port,ibuf - 1, res + 1);
-	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ, 0);
+	    driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ, 0);
 	    return;
 	} else {
 	    ibuf[-1] = DIST_MAGIC_RECV_TAG; /* XXX */
 	    driver_output(ud->port,ibuf - 1, res + 1);
-	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
+	    driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_READ|ERL_DRV_USE, 1);
 	}
     }
 }
@@ -797,7 +797,7 @@ static int send_out_queue(UdsData *ud)
 	int wrote;
 	if (tmp == NULL) {
 	    DEBUGF(("Write queue empty."));
-	    driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_WRITE, 0);
+	    driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_WRITE, 0);
 	    if (ud->type == portTypeCommand) {
 		driver_output(ud->port, "Sok", 3);
 	    }
@@ -815,10 +815,10 @@ static int send_out_queue(UdsData *ud)
 	    }
 	}
 #endif
-	if ((wrote = writev(ud->fd, tmp, vlen)) < 0) {
+	if ((wrote = writev(ud->fd, (const iovec_t *) tmp, vlen)) < 0) {
 	    if (errno == EWOULDBLOCK) {
 		DEBUGF(("Write failed normal."));
-		driver_select(ud->port, (ErlDrvEvent) ud->fd, ERL_DRV_WRITE|ERL_DRV_USE, 1);
+		driver_select(ud->port, (ErlDrvEvent) (long) ud->fd, ERL_DRV_WRITE|ERL_DRV_USE, 1);
 		return 0;
 	    } else {
 		DEBUGF(("Write failed fatal (%d).", errno));
